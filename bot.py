@@ -2,7 +2,6 @@ import smtplib
 import threading
 import asyncio
 import random
-import re
 import uuid
 import time as t
 from email.message import EmailMessage
@@ -98,36 +97,6 @@ SUBJECT_PREFIXES = [
 HEX_MIN_LEN = 4
 HEX_MAX_LEN = 6
 
-BODY_GREETINGS = [
-    "Hello", "Hi", "Hey", "Greetings", "Good day",
-    "Hello there", "Hi there", "Hey there", "Welcome",
-]
-
-BODY_OPENERS = [
-    "I hope this message finds you well.",
-    "I hope you're doing well.",
-    "I hope all is good with you.",
-    "I hope you're having a good day.",
-    "I trust this message reaches you in good time.",
-]
-
-BODY_CLOSERS = [
-    "Thank you for your time.",
-    "Thank you for reading.",
-    "Thanks for your attention.",
-    "I appreciate your time.",
-    "Thank you in advance.",
-]
-
-BODY_SIGNOFFS = [
-    "Best regards,",
-    "Kind regards,",
-    "Warm regards,",
-    "Best,",
-    "Regards,",
-    "Sincerely,",
-]
-
 SUPPORT_PREFIXES = [
     "abuse@", "recover@", "support@", "help@", "contact@",
     "feedback@", "info@", "noreply@", "no-reply@", "donotreply@",
@@ -138,18 +107,6 @@ SUPPORT_PREFIXES = [
 SUPPORT_FROM_NAME = "Mazen Ahmed"
 
 RECIPIENTS, SUBJECT, MESSAGE, TIMES = range(4)
-
-
-def spin(text):
-    pattern = r"\{([^{}]+)\}"
-    while re.search(pattern, text):
-        text = re.sub(
-            pattern,
-            lambda m: random.choice(m.group(1).split("|")),
-            text,
-            count=1,
-        )
-    return text
 
 
 def is_support_email(email):
@@ -174,32 +131,6 @@ def random_hex_suffix():
 
 def build_final_subject(base_subject):
     return f"{base_subject} - {random_hex_suffix()}"
-
-
-def build_body_variation(base_body):
-    greeting = random.choice(BODY_GREETINGS)
-    opener = random.choice(BODY_OPENERS)
-    closer = random.choice(BODY_CLOSERS)
-    signoff = random.choice(BODY_SIGNOFFS)
-    hex_id = random_hex_suffix()
-
-    spun_base = spin(base_body)
-
-    parts = [
-        f"{greeting},",
-        "",
-        opener,
-        "",
-        spun_base,
-        "",
-        closer,
-        "",
-        signoff,
-        "",
-        f"[Ref: {hex_id}]",
-    ]
-
-    return "\n".join(parts)
 
 
 def apply_anti_thread_headers(msg, sender_email):
@@ -326,7 +257,7 @@ def send_support_phase(recs, sub, text, log_sent, log_error):
                     msg["Reply-To"] = formataddr((SUPPORT_FROM_NAME, email))
                     msg["Date"] = formatdate(localtime=True)
                     apply_anti_thread_headers(msg, email)
-                    msg.set_content(build_body_variation(text))
+                    msg.set_content(text)
                     conn.send_message(msg)
                     log_sent()
                 except Exception as e:
@@ -422,7 +353,7 @@ def send_normal_phase(rec, sub, text, n, log_sent, log_error):
                     msg["List-Unsubscribe"] = "<mailto:{}?subject=unsubscribe>".format(email)
                     msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
                     apply_anti_thread_headers(msg, email)
-                    msg.set_content(build_body_variation(text))
+                    msg.set_content(text)
                     conn.send_message(msg)
                     log_sent()
                     sent_to.add(recipient)
@@ -450,7 +381,7 @@ def send_normal_phase(rec, sub, text, n, log_sent, log_error):
                             msg["List-Unsubscribe"] = "<mailto:{}?subject=unsubscribe>".format(email)
                             msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
                             apply_anti_thread_headers(msg, email)
-                            msg.set_content(build_body_variation(text))
+                            msg.set_content(text)
                             conn.send_message(msg)
                             log_sent()
                             sent_to.add(recipient)
