@@ -246,6 +246,12 @@ async def get_subject(update, context):
 
 async def get_message(update, context):
     context.user_data["text"] = update.message.text or ""
+    rec = context.user_data["rec"]
+
+    if all(is_support_email(r) for r in rec):
+        await trigger_sending(update, context, n=1)
+        return ConversationHandler.END
+
     await update.message.reply_text(f"Enter The Times (1 - {MAX_ROUNDS}):")
     return TIMES
 
@@ -261,6 +267,11 @@ async def get_times(update, context):
         await update.message.reply_text(f"Must be between 1 and {MAX_ROUNDS}. Try again:")
         return TIMES
 
+    await trigger_sending(update, context, n)
+    return ConversationHandler.END
+
+
+async def trigger_sending(update, context, n):
     chat_id = update.effective_chat.id
     rec = context.user_data["rec"]
     sub = context.user_data["sub"]
@@ -278,30 +289,13 @@ async def get_times(update, context):
         daemon=True,
     ).start()
 
-    return ConversationHandler.END
-
 
 def send_support_phase(recs, sub, text, log_sent, log_error):
     accounts = ACCOUNTS[:]
     num_workers = len(accounts)
-    num_recipients = len(recs)
 
-    if num_workers == 0:
-        log_error("No accounts for support recipients.")
+    if num_workers == 0 or len(recs) == 0:
         return False
-    if num_recipients == 0:
-        return False
-
-    chunks = []
-    for i in range(num_recipients):
-        start = i * num_workers // num_recipients
-        end = (i + 1) * num_workers // num_recipients
-        chunks.append(accounts[start:end])
-
-    account_to_chunk = {}
-    for chunk_idx, chunk in enumerate(chunks):
-        for acc in chunk:
-            account_to_chunk[acc[0]] = chunk_idx
 
     barrier = threading.Barrier(num_workers + 1)
     state = {"broken": False}
@@ -321,22 +315,24 @@ def send_support_phase(recs, sub, text, log_sent, log_error):
             return
 
         account_subject = build_subject(sub)
-        recipient_idx = account_to_chunk[email]
-        recipient = recs[recipient_idx]
 
         try:
-            msg = EmailMessage()
-            msg["From"] = formataddr((SUPPORT_FROM_NAME, email))
-            msg["To"] = recipient
-            msg["Subject"] = build_final_subject(account_subject)
-            msg["Reply-To"] = formataddr((SUPPORT_FROM_NAME, email))
-            msg["Date"] = formatdate(localtime=True)
-            apply_anti_thread_headers(msg, email)
-            msg.set_content(build_body_variation(text))
-            conn.send_message(msg)
-            log_sent()
-        except Exception as e:
-            log_error(f"[{email}] Support send error: {e}")
+            for recipient in recs:
+                try:
+                    msg = EmailMessage()
+                    msg["From"] = formataddr((SUPPORT_FROM_NAME, email))
+                    msg["To"] = recipient
+                    msg["Subject"] = build_final_subject(account_subject)
+                    msg["Reply-To"] = formataddr((SUPPORT_FROM_NAME, email))
+                    msg["Date"] = formatdate(localtime=True)
+                    apply_anti_thread_headers(msg, email)
+                    msg.set_content(build_body_variation(text))
+                    conn.send_message(msg)
+                    log_sent()
+                except Exception as e:
+                    log_error(f"[{email}] Support send error to {recipient}: {e}")
+
+                t.sleep(PER_MSG_DELAY)
         finally:
             try:
                 conn.quit()
@@ -361,7 +357,7 @@ def send_support_phase(recs, sub, text, log_sent, log_error):
         state["broken"] = True
 
     for th in threads:
-        th.join(timeout=120)
+        th.join(timeout=600)
 
     return state["broken"]
 
