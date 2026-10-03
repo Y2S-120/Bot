@@ -1,6 +1,7 @@
 import smtplib
 import threading
 import asyncio
+import random
 import time as t
 from email.message import EmailMessage
 
@@ -20,13 +21,11 @@ ACCOUNTS = [
         ("mazen97988@gmail.com", "imzefktipwekyown"),
         ("nkmnllm@gmail.com", "iwmdmfgezvghryxs"),
         ("noctenneir@gmail.com", "cqncgqnzdkoffsem"),
-        ("veltrixsiw@gmail.com", "wbzfttvppeyznrt"),
         ("mazen979887@gmail.com", "yrlkniiocnahshlb"),
         ("khalid66861@gmail.com", "pniykwrpwiqtgeio"),
         ("ibrahim979101@gmail.com", "wwivqzwzpaaleype"),
         ("kbrhom32@gmail.com", "sffbqqofpmvxtzzj"),
         ("formazen123.1@gmail.com", "qmynsqbpynrjpdzh"),
-        ("formazen123.2@gmail.com", "fgmnoatpaibxtnky"),
         ("mkhalil97978@gmail.com", "bbbpdnfyvyrxqrlq"),
         ("mkhalil0791@gmail.com", "lhqvjgpfzortafod"),
         ("fahmed97811@gmail.com", "ezefqpzlfqsuofkk"),
@@ -37,13 +36,66 @@ ACCOUNTS = [
         ("auaha5539@gmail.com", "ayrntvvgxadmzyes"),
         ("daniahmed1000@gmail.com", "gbbhsrvzdyifhnpm"),
         ("farah0696961@gmail.com", "amhexfyosbefwfpx"),
+        ("youeandme@gmail.com", "wynbigyzldvgsspx"),
+        ("vaid.adit7@gmail.com", "wsrchrfsimkfmbql"),
+        ("dannytoboss@gmail.com", "pfpghfmzzjpffgzc"),
+        ("elmahambeng@gmail.com", "phmklwwxiydbvunn"),
+        ("gymnasticsforlifeee@gmail.com", "ljamwgzvomkqirde"),
+        ("isabellwatwbl@gmail.com", "zjehnehgbfdeqfcj"),
+        ("klyacike@gmail.com", "anamdzesbzmaszbl"),
+        ("lisbethrevsz@gmail.com", "evlhzhgyqkvbajej"),
+        ("mansparkes35@gmail.com", "ptgtpfsgejkevgpu"),
+        ("masoodkardost2014@gmail.com", "xlxhxhaydfoeeoxu"),
+        ("mmsbz1728@gmail.com", "zjbnekqotxvrvzqi"),
+        ("nazhi2699@gmail.com", "rhtxusrqiczlgppl"),
+        ("needsel284@gmail.com", "lnavaviwaaumskue"),
+        ("aayekcorb@gmail.com", "kopumakdtoxgrtjx"),
+        ("abdo.kamalbashir@gmail.com", "djgjyytyfqhenkpn"),
+        ("alikemalimcirkus@gmail.com", "bmgssvpuoovrtcgf"),
+        ("alrhbynayl@gmail.com", "cpnjodgfamlvonss"),
+        ("amin.jala654@gmail.com", "yagukgcahqvmsqnb"),
+        ("angiemendezllc@gmail.com", "dvsdqqjyprignsew"),
+        ("antosxamsey@gmail.com", "zrchmebqijnhqtki"),
+        ("aurorarinau54@gmail.com", "eeddmdqmlmqtfeng"),
+        ("bbsnansjsjj@gmail.com", "uwvokxwojhdulwhz"),
+        ("bradkinsmf@gmail.com", "zgyhypniotwtipxe"),
+        ("coderinggl@gmail.com", "wisamfdxodcrgknn"),
+        ("nonasujo@gmail.com", "evkgofjvzdqrahpv"),
+        ("orvalkaner@gmail.com", "kzugzlrtbrgpomlu"),
+        ("osuhndaendiaozogsic@gmail.com", "ddosiimiudtlsgey"),
+        ("otheshyintitea@gmail.com", "esgemyjzfrbilxuy"),
+        ("princess1936lp@gmail.com", "sahnfeivsjfpcivs"),
+        ("ranesesvjtp@gmail.com", "rxumzxdnnzzwpsog"),
+        ("sarah233cristina600flor@gmail.com", "pbltxohwgulkbgau"),
+        ("sarisarahnia@gmail.com", "nsuvmxqyzzileaxb"),
+        ("serifesarigul1769@gmail.com", "eedajizdrjofmeqn"),
+        ("sharonterqnw@gmail.com", "iievetogtdzfnvvs"),
+        ("shervnn6050@gmail.com", "estatxkqrvfodlkv"),
+        ("stelasapato@gmail.com", "rhevvggcmrpnvvyh"),
+        ("telloe1963@gmail.com", "iubocxwzznxxszaf"),
+        ("teresamtierney@gmail.com", "wpcclnbfjzuoccvv")
 ]
 
-PER_MSG_DELAY = 0.5
-BETWEEN_ROUNDS_DELAY = 10
-MAX_ROUNDS = 20
+PER_MSG_DELAY = 2.0
+MAX_ROUNDS = 2
+
+SUBJECT_PREFIXES = [
+    ("", 50),
+    ("Hello - ", 10),
+    ("Hi - ", 10),
+    ("Welcome - ", 10),
+    ("Greetings - ", 10),
+    ("Hey - ", 10),
+]
 
 RECIPIENTS, SUBJECT, MESSAGE, TIMES = range(4)
+
+
+def build_subject(base_subject):
+    prefixes = [p for p, _ in SUBJECT_PREFIXES]
+    weights = [w for _, w in SUBJECT_PREFIXES]
+    prefix = random.choices(prefixes, weights=weights, k=1)[0]
+    return f"{prefix}{base_subject}"
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -101,8 +153,6 @@ async def get_times(update, context):
     text = context.user_data["text"]
 
     context.bot_data["sending"] = True
-
-    await update.message.reply_text(f"Starting sending now... ({n} rounds per account)")
 
     loop = asyncio.get_running_loop()
     app = context.application
@@ -162,9 +212,25 @@ def run_sending(app, loop, chat_id, rec, sub, text, n, bot_data):
     try:
         accounts = ACCOUNTS[:]
         num_workers = len(accounts)
+        num_recipients = len(rec)
+
         if num_workers == 0:
             notify("No accounts to use.")
             return
+        if num_recipients == 0:
+            notify("No recipients.")
+            return
+
+        chunks = []
+        for i in range(num_recipients):
+            start = i * num_workers // num_recipients
+            end = (i + 1) * num_workers // num_recipients
+            chunks.append(accounts[start:end])
+
+        account_to_chunk = {}
+        for chunk_idx, chunk in enumerate(chunks):
+            for acc in chunk:
+                account_to_chunk[acc[0]] = chunk_idx
 
         barrier_end = threading.Barrier(num_workers + 1)
         barrier_start = threading.Barrier(num_workers + 1)
@@ -184,18 +250,27 @@ def run_sending(app, loop, chat_id, rec, sub, text, n, bot_data):
                     pass
                 return
 
+            account_subject = build_subject(sub)
+
+            sent_to = set()
+            skip_catchup = False
+
             try:
-                for i in range(n):
+                for round_idx in range(n):
+                    recipient_idx = (account_to_chunk[email] + round_idx) % num_recipients
+                    recipient = rec[recipient_idx]
+
                     try:
                         msg = EmailMessage()
                         msg["From"] = email
-                        msg["To"] = ", ".join(rec)
-                        msg["Subject"] = sub
+                        msg["To"] = recipient
+                        msg["Subject"] = account_subject
                         msg.set_content(text)
                         conn.send_message(msg)
                         log_sent()
+                        sent_to.add(recipient)
                     except Exception as send_e:
-                        log_error(f"[{email}] Send error in round {i+1}: {send_e}")
+                        log_error(f"[{email}] Send error in round {round_idx+1}: {send_e}")
 
                     t.sleep(PER_MSG_DELAY)
 
@@ -203,7 +278,24 @@ def run_sending(app, loop, chat_id, rec, sub, text, n, bot_data):
                         barrier_end.wait()
                         barrier_start.wait()
                     except threading.BrokenBarrierError:
+                        skip_catchup = True
                         break
+
+                if not skip_catchup:
+                    for recipient in rec:
+                        if recipient not in sent_to:
+                            try:
+                                msg = EmailMessage()
+                                msg["From"] = email
+                                msg["To"] = recipient
+                                msg["Subject"] = account_subject
+                                msg.set_content(text)
+                                conn.send_message(msg)
+                                log_sent()
+                                sent_to.add(recipient)
+                            except Exception as send_e:
+                                log_error(f"[{email}] Catch-up error: {send_e}")
+                            t.sleep(PER_MSG_DELAY)
             finally:
                 try:
                     conn.quit()
@@ -230,12 +322,6 @@ def run_sending(app, loop, chat_id, rec, sub, text, n, bot_data):
                 broken = True
                 break
 
-            if i < n - 1:
-                notify(f"Round {i+1}/{n} finished. Waiting {BETWEEN_ROUNDS_DELAY}s...")
-                t.sleep(BETWEEN_ROUNDS_DELAY)
-            else:
-                notify(f"Round {i+1}/{n} finished.")
-
             try:
                 barrier_start.wait()
             except threading.BrokenBarrierError:
@@ -248,7 +334,7 @@ def run_sending(app, loop, chat_id, rec, sub, text, n, bot_data):
                 break
 
         for th in threads:
-            th.join(timeout=2)
+            th.join(timeout=120)
 
         notify(build_status(broken))
     finally:
