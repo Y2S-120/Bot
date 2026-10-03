@@ -2,8 +2,11 @@ import smtplib
 import threading
 import asyncio
 import random
+import re
+import uuid
 import time as t
 from email.message import EmailMessage
+from email.utils import make_msgid, formatdate, formataddr
 
 from telegram import Update
 from telegram.ext import (
@@ -21,11 +24,13 @@ ACCOUNTS = [
         ("mazen97988@gmail.com", "imzefktipwekyown"),
         ("nkmnllm@gmail.com", "iwmdmfgezvghryxs"),
         ("noctenneir@gmail.com", "cqncgqnzdkoffsem"),
+        ("veltrixsiw@gmail.com", "wbzfttvppeyznrt"),
         ("mazen979887@gmail.com", "yrlkniiocnahshlb"),
         ("khalid66861@gmail.com", "pniykwrpwiqtgeio"),
         ("ibrahim979101@gmail.com", "wwivqzwzpaaleype"),
         ("kbrhom32@gmail.com", "sffbqqofpmvxtzzj"),
         ("formazen123.1@gmail.com", "qmynsqbpynrjpdzh"),
+        ("formazen123.2@gmail.com", "fgmnoatpaibxtnky"),
         ("mkhalil97978@gmail.com", "bbbpdnfyvyrxqrlq"),
         ("mkhalil0791@gmail.com", "lhqvjgpfzortafod"),
         ("fahmed97811@gmail.com", "ezefqpzlfqsuofkk"),
@@ -50,6 +55,7 @@ ACCOUNTS = [
         ("nazhi2699@gmail.com", "rhtxusrqiczlgppl"),
         ("needsel284@gmail.com", "lnavaviwaaumskue"),
         ("aayekcorb@gmail.com", "kopumakdtoxgrtjx"),
+        ("mjnwn2854@gmail.com", "wwtjyouyxxngquec"),
         ("abdo.kamalbashir@gmail.com", "djgjyytyfqhenkpn"),
         ("alikemalimcirkus@gmail.com", "bmgssvpuoovrtcgf"),
         ("alrhbynayl@gmail.com", "cpnjodgfamlvonss"),
@@ -77,7 +83,8 @@ ACCOUNTS = [
 ]
 
 PER_MSG_DELAY = 2.0
-MAX_ROUNDS = 2
+ROUND_DURATION = 180
+MAX_ROUNDS = 75
 
 SUBJECT_PREFIXES = [
     ("", 50),
@@ -88,7 +95,71 @@ SUBJECT_PREFIXES = [
     ("Hey - ", 10),
 ]
 
+HEX_MIN_LEN = 4
+HEX_MAX_LEN = 6
+
+BODY_GREETINGS = [
+    "Hello", "Hi", "Hey", "Greetings", "Good day",
+    "Hello there", "Hi there", "Hey there", "Welcome",
+]
+
+BODY_OPENERS = [
+    "I hope this message finds you well.",
+    "I hope you're doing well.",
+    "I hope all is good with you.",
+    "I hope you're having a good day.",
+    "I trust this message reaches you in good time.",
+]
+
+BODY_CLOSERS = [
+    "Thank you for your time.",
+    "Thank you for reading.",
+    "Thanks for your attention.",
+    "I appreciate your time.",
+    "Thank you in advance.",
+]
+
+BODY_SIGNOFFS = [
+    "Best regards,",
+    "Kind regards,",
+    "Warm regards,",
+    "Best,",
+    "Regards,",
+    "Sincerely,",
+]
+
+SUPPORT_PREFIXES = [
+    "abuse@", "recover@", "support@", "help@", "contact@",
+    "feedback@", "info@", "noreply@", "no-reply@", "donotreply@",
+    "security@", "legal@", "privacy@", "postmaster@", "webmaster@",
+    "compliance@", "report@", "appeals@", "dmca@",
+]
+
+SUPPORT_ACCOUNT_EMAIL = "mazen97988@gmail.com"
+SUPPORT_FROM_NAME = "Mazen Ahmed"
+SUPPORT_DELAY = 7.0
+
 RECIPIENTS, SUBJECT, MESSAGE, TIMES = range(4)
+
+
+def spin(text):
+    pattern = r"\{([^{}]+)\}"
+    while re.search(pattern, text):
+        text = re.sub(
+            pattern,
+            lambda m: random.choice(m.group(1).split("|")),
+            text,
+            count=1,
+        )
+    return text
+
+
+def is_support_email(email):
+    e = email.lower().strip()
+    for prefix in SUPPORT_PREFIXES:
+        if e.startswith(prefix):
+            return True
+    return False
 
 
 def build_subject(base_subject):
@@ -96,6 +167,51 @@ def build_subject(base_subject):
     weights = [w for _, w in SUBJECT_PREFIXES]
     prefix = random.choices(prefixes, weights=weights, k=1)[0]
     return f"{prefix}{base_subject}"
+
+
+def random_hex_suffix():
+    length = random.randint(HEX_MIN_LEN, HEX_MAX_LEN)
+    return "".join(random.choices("0123456789abcdef", k=length))
+
+
+def build_final_subject(base_subject):
+    return f"{base_subject} - {random_hex_suffix()}"
+
+
+def build_body_variation(base_body):
+    greeting = random.choice(BODY_GREETINGS)
+    opener = random.choice(BODY_OPENERS)
+    closer = random.choice(BODY_CLOSERS)
+    signoff = random.choice(BODY_SIGNOFFS)
+    hex_id = random_hex_suffix()
+
+    spun_base = spin(base_body)
+
+    parts = [
+        f"{greeting},",
+        "",
+        opener,
+        "",
+        spun_base,
+        "",
+        closer,
+        "",
+        signoff,
+        "",
+        f"[Ref: {hex_id}]",
+    ]
+
+    return "\n".join(parts)
+
+
+def apply_anti_thread_headers(msg, sender_email):
+    msg["Message-ID"] = make_msgid(domain=sender_email.split("@")[-1])
+    msg["X-Entity-Ref-ID"] = uuid.uuid4().hex
+    try:
+        del msg["References"]
+        del msg["In-Reply-To"]
+    except KeyError:
+        pass
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -167,6 +283,192 @@ async def get_times(update, context):
     return ConversationHandler.END
 
 
+def send_support_phase(primary_account, recs, sub, text, n, log_sent, log_error):
+    email, password = primary_account
+
+    try:
+        conn = smtplib.SMTP("smtp.gmail.com", 587, timeout=30)
+        conn.ehlo()
+        conn.starttls()
+        conn.login(email, password)
+    except Exception as e:
+        log_error(f"[{email}] Support login failed: {e}")
+        return
+
+    support_rounds = 1
+
+    account_subject = build_subject(sub)
+
+    try:
+        for round_idx in range(support_rounds):
+            for recipient in recs:
+                try:
+                    msg = EmailMessage()
+                    msg["From"] = formataddr((SUPPORT_FROM_NAME, email))
+                    msg["To"] = recipient
+                    msg["Subject"] = build_final_subject(account_subject)
+                    msg["Reply-To"] = formataddr((SUPPORT_FROM_NAME, email))
+                    msg["Date"] = formatdate(localtime=True)
+                    apply_anti_thread_headers(msg, email)
+                    msg.set_content(build_body_variation(text))
+                    conn.send_message(msg)
+                    log_sent()
+                except Exception as e:
+                    log_error(f"[{email}] Support send error to {recipient}: {e}")
+
+                t.sleep(SUPPORT_DELAY)
+    finally:
+        try:
+            conn.quit()
+        except Exception:
+            pass
+
+
+def send_normal_phase(rec, sub, text, n, log_sent, log_error):
+    accounts = ACCOUNTS[:]
+    num_workers = len(accounts)
+    num_recipients = len(rec)
+
+    if num_workers == 0:
+        log_error("No accounts to use for normal recipients.")
+        return False
+    if num_recipients == 0:
+        return False
+
+    chunks = []
+    for i in range(num_recipients):
+        start = i * num_workers // num_recipients
+        end = (i + 1) * num_workers // num_recipients
+        chunks.append(accounts[start:end])
+
+    account_to_chunk = {}
+    for chunk_idx, chunk in enumerate(chunks):
+        for acc in chunk:
+            account_to_chunk[acc[0]] = chunk_idx
+
+    barrier_end = threading.Barrier(num_workers + 1)
+    barrier_start = threading.Barrier(num_workers + 1)
+    state = {"broken": False}
+
+    def worker(email, password):
+        try:
+            conn = smtplib.SMTP("smtp.gmail.com", 587, timeout=30)
+            conn.ehlo()
+            conn.starttls()
+            conn.login(email, password)
+        except Exception as e:
+            log_error(f"[{email}] Login failed: {e}")
+            try:
+                barrier_end.abort()
+                barrier_start.abort()
+            except Exception:
+                pass
+            return
+
+        account_subject = build_subject(sub)
+
+        sent_to = set()
+        skip_catchup = False
+
+        try:
+            for round_idx in range(n):
+                recipient_idx = (account_to_chunk[email] + round_idx) % num_recipients
+                recipient = rec[recipient_idx]
+
+                try:
+                    msg = EmailMessage()
+                    msg["From"] = email
+                    msg["To"] = recipient
+                    msg["Subject"] = build_final_subject(account_subject)
+                    msg["Date"] = formatdate(localtime=True)
+                    msg["List-Unsubscribe"] = "<mailto:{}?subject=unsubscribe>".format(email)
+                    msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+                    apply_anti_thread_headers(msg, email)
+                    msg.set_content(build_body_variation(text))
+                    conn.send_message(msg)
+                    log_sent()
+                    sent_to.add(recipient)
+                except Exception as send_e:
+                    log_error(f"[{email}] Send error in round {round_idx+1}: {send_e}")
+
+                t.sleep(PER_MSG_DELAY)
+
+                try:
+                    barrier_end.wait()
+                    barrier_start.wait()
+                except threading.BrokenBarrierError:
+                    skip_catchup = True
+                    break
+
+            if not skip_catchup:
+                for recipient in rec:
+                    if recipient not in sent_to:
+                        try:
+                            msg = EmailMessage()
+                            msg["From"] = email
+                            msg["To"] = recipient
+                            msg["Subject"] = build_final_subject(account_subject)
+                            msg["Date"] = formatdate(localtime=True)
+                            msg["List-Unsubscribe"] = "<mailto:{}?subject=unsubscribe>".format(email)
+                            msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+                            apply_anti_thread_headers(msg, email)
+                            msg.set_content(build_body_variation(text))
+                            conn.send_message(msg)
+                            log_sent()
+                            sent_to.add(recipient)
+                        except Exception as send_e:
+                            log_error(f"[{email}] Catch-up error: {send_e}")
+                        t.sleep(PER_MSG_DELAY)
+        finally:
+            try:
+                conn.quit()
+            except Exception:
+                pass
+
+    threads = []
+    for email, password in accounts:
+        th = threading.Thread(target=worker, args=(email, password), daemon=True)
+        threads.append(th)
+        th.start()
+        t.sleep(0.05)
+
+    for i in range(n):
+        round_start = t.time()
+
+        try:
+            barrier_end.wait()
+        except threading.BrokenBarrierError:
+            try:
+                barrier_end.abort()
+                barrier_start.abort()
+            except Exception:
+                pass
+            state["broken"] = True
+            break
+
+        if i < n - 1:
+            elapsed = t.time() - round_start
+            remaining = ROUND_DURATION - elapsed
+            if remaining > 0:
+                t.sleep(remaining)
+
+        try:
+            barrier_start.wait()
+        except threading.BrokenBarrierError:
+            try:
+                barrier_end.abort()
+                barrier_start.abort()
+            except Exception:
+                pass
+            state["broken"] = True
+            break
+
+    for th in threads:
+        th.join(timeout=600)
+
+    return state["broken"]
+
+
 def run_sending(app, loop, chat_id, rec, sub, text, n, bot_data):
     def notify(msg):
         try:
@@ -210,131 +512,27 @@ def run_sending(app, loop, chat_id, rec, sub, text, n, bot_data):
         return "\n".join(lines)
 
     try:
-        accounts = ACCOUNTS[:]
-        num_workers = len(accounts)
-        num_recipients = len(rec)
-
-        if num_workers == 0:
-            notify("No accounts to use.")
-            return
-        if num_recipients == 0:
-            notify("No recipients.")
+        if not ACCOUNTS:
+            notify("No accounts configured.")
             return
 
-        chunks = []
-        for i in range(num_recipients):
-            start = i * num_workers // num_recipients
-            end = (i + 1) * num_workers // num_recipients
-            chunks.append(accounts[start:end])
+        support_recs = [r for r in rec if is_support_email(r)]
+        normal_recs = [r for r in rec if not is_support_email(r)]
 
-        account_to_chunk = {}
-        for chunk_idx, chunk in enumerate(chunks):
-            for acc in chunk:
-                account_to_chunk[acc[0]] = chunk_idx
+        if support_recs:
+            primary = None
+            for acc in ACCOUNTS:
+                if acc[0] == SUPPORT_ACCOUNT_EMAIL:
+                    primary = acc
+                    break
+            if primary is None:
+                primary = ACCOUNTS[0]
 
-        barrier_end = threading.Barrier(num_workers + 1)
-        barrier_start = threading.Barrier(num_workers + 1)
-
-        def worker(email, password):
-            try:
-                conn = smtplib.SMTP("smtp.gmail.com", 587, timeout=30)
-                conn.ehlo()
-                conn.starttls()
-                conn.login(email, password)
-            except Exception as e:
-                log_error(f"[{email}] Login failed: {e}")
-                try:
-                    barrier_end.abort()
-                    barrier_start.abort()
-                except Exception:
-                    pass
-                return
-
-            account_subject = build_subject(sub)
-
-            sent_to = set()
-            skip_catchup = False
-
-            try:
-                for round_idx in range(n):
-                    recipient_idx = (account_to_chunk[email] + round_idx) % num_recipients
-                    recipient = rec[recipient_idx]
-
-                    try:
-                        msg = EmailMessage()
-                        msg["From"] = email
-                        msg["To"] = recipient
-                        msg["Subject"] = account_subject
-                        msg.set_content(text)
-                        conn.send_message(msg)
-                        log_sent()
-                        sent_to.add(recipient)
-                    except Exception as send_e:
-                        log_error(f"[{email}] Send error in round {round_idx+1}: {send_e}")
-
-                    t.sleep(PER_MSG_DELAY)
-
-                    try:
-                        barrier_end.wait()
-                        barrier_start.wait()
-                    except threading.BrokenBarrierError:
-                        skip_catchup = True
-                        break
-
-                if not skip_catchup:
-                    for recipient in rec:
-                        if recipient not in sent_to:
-                            try:
-                                msg = EmailMessage()
-                                msg["From"] = email
-                                msg["To"] = recipient
-                                msg["Subject"] = account_subject
-                                msg.set_content(text)
-                                conn.send_message(msg)
-                                log_sent()
-                                sent_to.add(recipient)
-                            except Exception as send_e:
-                                log_error(f"[{email}] Catch-up error: {send_e}")
-                            t.sleep(PER_MSG_DELAY)
-            finally:
-                try:
-                    conn.quit()
-                except Exception:
-                    pass
-
-        threads = []
-        for email, password in accounts:
-            th = threading.Thread(target=worker, args=(email, password), daemon=True)
-            threads.append(th)
-            th.start()
-            t.sleep(0.05)
+            send_support_phase(primary, support_recs, sub, text, n, log_sent, log_error)
 
         broken = False
-        for i in range(n):
-            try:
-                barrier_end.wait()
-            except threading.BrokenBarrierError:
-                try:
-                    barrier_end.abort()
-                    barrier_start.abort()
-                except Exception:
-                    pass
-                broken = True
-                break
-
-            try:
-                barrier_start.wait()
-            except threading.BrokenBarrierError:
-                try:
-                    barrier_end.abort()
-                    barrier_start.abort()
-                except Exception:
-                    pass
-                broken = True
-                break
-
-        for th in threads:
-            th.join(timeout=120)
+        if normal_recs:
+            broken = send_normal_phase(normal_recs, sub, text, n, log_sent, log_error)
 
         notify(build_status(broken))
     finally:
